@@ -1,3 +1,5 @@
+# This module manages the Dev environment.
+
 module "resource_group" {
   source   = "../../modules/resource_group"
   name     = "${var.name_prefix}-${var.environment}-RG"
