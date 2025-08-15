@@ -1,4 +1,5 @@
 # CLI entry point for InfraBox
+# This script serves as the command-line interface for managing InfraBox resources.
 
 from cli.commands import create, destroy, initialize
 from cli.parser import parse_arguments
