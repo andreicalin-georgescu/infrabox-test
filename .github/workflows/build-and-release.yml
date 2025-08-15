@@ -1,0 +1,200 @@
+name: Build and Release
+
+# This workflow should trigger based on labels. If a pull request is labeled with release:patch, it should create a patch release.
+# If a release is labeled with release:minor, it should create a minor release.
+# If a release is labeled with release:major, it should create a major release.
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  tag-and-build:
+    if: github.event.pull_request.merged == true && (contains(github.event.pull_request.labels.*.name, 'release:patch') || contains(github.event.pull_request.labels.*.name, 'release:minor') || contains(github.event.pull_request.labels.*.name, 'release:major'))
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.create_tag.outputs.new_tag }}
+      release_type: ${{ steps.determine_release.outputs.release_type }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine release type
+        id: determine_release
+        run: |
+          if [[ ${{ contains(github.event.pull_request.labels.*.name, 'release:patch') }} == true ]]; then
+            echo "release_type=patch" >> $GITHUB_OUTPUT
+          elif [[ ${{ contains(github.event.pull_request.labels.*.name, 'release:minor') }} == true ]]; then
+            echo "release_type=minor" >> $GITHUB_OUTPUT
+          elif [[ ${{ contains(github.event.pull_request.labels.*.name, 'release:major') }} == true ]]; then
+            echo "release_type=major" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get latest tag
+        id: get_latest_tag
+        run: |
+          git fetch --tags
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+          
+          # Parse version components
+          if [[ $LATEST_TAG =~ v([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+            echo "major=$MAJOR" >> $GITHUB_OUTPUT
+            echo "minor=$MINOR" >> $GITHUB_OUTPUT
+            echo "patch=$PATCH" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create new tag based on release type
+        id: create_tag
+        run: |
+          MAJOR=${{ steps.get_latest_tag.outputs.major }}
+          MINOR=${{ steps.get_latest_tag.outputs.minor }}
+          PATCH=${{ steps.get_latest_tag.outputs.patch }}
+          
+          if [[ "${{ steps.determine_release.outputs.release_type }}" == "major" ]]; then
+            NEW_TAG="v$((MAJOR + 1)).0.0"
+          elif [[ "${{ steps.determine_release.outputs.release_type }}" == "minor" ]]; then
+            NEW_TAG="v${MAJOR}.$((MINOR + 1)).0"
+          else
+            NEW_TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          
+          echo "new_tag=${NEW_TAG}" >> $GITHUB_OUTPUT
+          
+          # Get PR author information and PR title
+          PR_AUTHOR_NAME="${{ github.event.pull_request.user.name }}"
+          PR_AUTHOR_EMAIL="${{ github.event.pull_request.user.email }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          
+          # If PR author name is not available, use login
+          if [ -z "$PR_AUTHOR_NAME" ]; then
+            PR_AUTHOR_NAME="${{ github.event.pull_request.user.login }}"
+          fi
+          
+          # If PR author email is not available, use GitHub's no-reply email with the login
+          if [ -z "$PR_AUTHOR_EMAIL" ]; then
+            PR_AUTHOR_EMAIL="${{ github.event.pull_request.user.login }}@users.noreply.github.com"
+          fi
+          
+          git config --local user.email "$PR_AUTHOR_EMAIL"
+          git config --local user.name "$PR_AUTHOR_NAME"
+          git tag -a ${NEW_TAG} -m "Release ${NEW_TAG}: ${PR_TITLE}"
+          git push origin ${NEW_TAG}
+
+      - name: Create artifact
+        run: |
+          # Exclude files not needed in release
+          mkdir -p release_content
+          rsync -av --exclude='.git*' \
+                    --exclude='CODE_OF_CONDUCT.md' \
+                    --exclude='CONTRIBUTING.md' \
+                    --exclude='.gitattributes' \
+                    --exclude='.github' \
+                    ./ release_content/
+
+      - name: Create ZIP archive
+        run: |
+          cd release_content
+          zip -r ../InfraBox-${{ steps.create_tag.outputs.new_tag }}.zip .
+
+      - name: Create tarball
+        run: |
+          cd release_content
+          tar -czf ../InfraBox-${{ steps.create_tag.outputs.new_tag }}.tar.gz .
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: InfraBox-${{ steps.create_tag.outputs.new_tag }}.zip
+          path: InfraBox-${{ steps.create_tag.outputs.new_tag }}.zip
+
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: InfraBox-${{ steps.create_tag.outputs.new_tag }}.tar.gz
+          path: InfraBox-${{ steps.create_tag.outputs.new_tag }}.tar.gz
+
+  create-release:
+    needs: tag-and-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download ZIP artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: InfraBox-${{ needs.tag-and-build.outputs.new_tag }}.zip
+
+      - name: Download tarball artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: InfraBox-${{ needs.tag-and-build.outputs.new_tag }}.tar.gz
+
+      - name: Create GitHub Release
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = '${{ needs.tag-and-build.outputs.new_tag }}';
+            const releaseType = '${{ needs.tag-and-build.outputs.release_type }}';
+            
+            let releaseTitle = '';
+            if (releaseType === 'major') {
+              releaseTitle = `Major Release ${tag}`;
+            } else if (releaseType === 'minor') {
+              releaseTitle = `Minor Release ${tag}`;
+            } else {
+              releaseTitle = `Patch Release ${tag}`;
+            }
+            
+            const fs = require('fs');
+            
+            try {
+              const release = await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: tag,
+                name: releaseTitle,
+                draft: true,
+                generate_release_notes: true
+              });
+              
+              // Upload ZIP file
+              const zipFilePath = `InfraBox-${tag}.zip`;
+              const zipFileContent = fs.readFileSync(zipFilePath);
+              
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.data.id,
+                name: zipFilePath,
+                data: zipFileContent
+              });
+              
+              // Upload tarball
+              const tarFilePath = `InfraBox-${tag}.tar.gz`;
+              const tarFileContent = fs.readFileSync(tarFilePath);
+              
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.data.id,
+                name: tarFilePath,
+                data: tarFileContent
+              });
+              
+              console.log(`Created draft release ${releaseTitle} with assets`);
+              
+            } catch (error) {
+              core.setFailed(`Release creation failed: ${error.message}`);
+            }

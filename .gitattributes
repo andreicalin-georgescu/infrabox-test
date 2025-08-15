@@ -1,0 +1,12 @@
+# Ensure consistent text file formatting
+* text=auto
+
+# Explicit line endings
+*.tf text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+
+# Treat sensitive files as binary to avoid accidental diffing
+*.pem binary
+*.key binary
+*.pub text

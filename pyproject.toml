@@ -1,0 +1,43 @@
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests"
+]
+
+[tool.ruff]
+# Match Black's default line length
+line-length = 88
+
+# Exclude unnecessary or unsafe folders
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    ".terraform",
+    ".mypy_cache"
+]
+
+# Enable commonly used linter rulesets
+lint.extend-select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "B",    # bugbear (best practices)
+    "I",    # isort (import sorting)
+    "ARG",  # flake8-unused-arguments
+    "DTZ",  # flake8-datetimez (timezone-aware)
+    "PGH",  # pygrep-hooks (unsafe patterns)
+    "PL",   # pylint rules
+    "RUF",  # Ruff-specific rules
+]
+
+# Ignore rules Black disagrees with or that are overly strict
+lint.ignore = [
+    "E501",  # Line too long (handled by Black)
+    "E203",  # Whitespace before ':', handled by Black
+]
+
+# Optional: auto-fixable rules
+lint.fixable = ["ALL"]

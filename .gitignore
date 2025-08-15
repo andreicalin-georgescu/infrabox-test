@@ -1,0 +1,56 @@
+# Crash logs
+crash.log
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*.pytest_cache/
+
+# Virtual environment directories
+venv/
+.env
+
+# Coverage reports
+.coverage
+htmlcov/
+
+# Ruff cache
+.ruff_cache/
+
+# Sensitive variable files
+*.auto.tfvars
+*.auto.tfvars.json
+
+# Terraform override files
+*.override.tf
+*.override.tf.json
+
+# Terraform state
+terraform.tfstate
+terraform.tfstate.backup
+
+# Terraform variable files
+terraform.tfvars
+
+# Terraform working directory
+.terraform/
+
+# Local .tfplan files (Terraform plan output)
+*.tfplan
+
+# SSH keys
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# IDE or OS-specific
+.DS_Store
+*.swp
+*.swo
+*.bak
+.vscode/
+.idea/
+
+# Editor swap/backup files
+*~

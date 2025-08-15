@@ -1,0 +1,56 @@
+name: 🌍 Terraform Lint, Format and Validate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.tf'
+      - '**/*.tfvars'
+      - '.github/workflows/terraform-validate.yml'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+    terraform-static-analysis:
+        name: 🔍 Terraform Static Analysis
+        runs-on: ubuntu-latest
+
+        steps:
+          - name: 🛎️ Checkout code
+            uses: actions/checkout@v4
+
+          - name: 🔧 Set up Terraform
+            uses: hashicorp/setup-terraform@v3
+            with:
+              terraform_version: 1.4.0
+
+          - name: 🎯 Terraform Format Check
+            run: terraform fmt -check -recursive
+
+          - name: ✅ Initialize Terraform (no backend)
+            run: terraform init -backend=false
+
+          - name: 🔍 Validate Terraform Configuration
+            run: terraform validate
+
+          - name: 🧹 Install TFLint
+            uses: terraform-linters/setup-tflint@v4
+            with:
+                tflint_version: latest
+
+          - name: 🧪 Run TFLint
+            run: tflint --recursive
+
+    terraform-security-scan:
+        name: 🔐 Terraform Security (tfsec)
+        runs-on: ubuntu-latest
+
+        steps:
+          - name: 🛎️ Checkout code
+            uses: actions/checkout@v4
+          
+          - name: 🔐 Run tfsec
+            uses: aquasecurity/tfsec-action@v1.0.0
+            

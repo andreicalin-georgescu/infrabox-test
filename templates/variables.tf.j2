@@ -1,0 +1,47 @@
+variable "name_prefix" {
+  type    = string
+  default = "{{ name_prefix }}"
+}
+
+variable "environment" {
+  type    = string
+  default = "{{ environment }}"
+}
+
+variable "location" {
+  type    = string
+  default = "{{ location }}"
+}
+
+variable "vnet_address_space" {
+  type    = list(string)
+  default = ["{{ vnet_address_space }}"]
+}
+
+variable "subnet_address_space" {
+  type    = list(string)
+  default = ["{{ subnet_address_space }}"]
+}
+
+variable "dns_zone_name" {
+  type    = string
+  default = "{{ dns_zone_name }}"
+}
+
+variable "admin_username" {
+  type    = string
+  default = "{{ admin_username }}"
+}
+
+variable "ssh_public_key_path" {
+  type    = string
+  default = "{{ ssh_public_key_path }}"
+}
+
+variable "tags" {
+  type = map(string)
+  default = {
+    project     = "InfraBox"
+    environment = "{{ environment }}"
+  }
+}
