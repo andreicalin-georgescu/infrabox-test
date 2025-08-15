@@ -126,9 +126,10 @@ jobs:
           git config --local user.email "$PR_AUTHOR_EMAIL"
           git config --local user.name "$PR_AUTHOR_NAME"
           git tag -a ${NEW_TAG} -m "Release ${NEW_TAG}: ${PR_TITLE}"
-
-          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-          git push origin ${NEW_TAG}
+          
+          # Instead of setting remote URL with token, use the default GITHUB_TOKEN through HTTPS
+          echo "Pushing tag ${NEW_TAG} to origin"
+          git push "https://${GITHUB_ACTOR}:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ${NEW_TAG}
 
       - name: Cache rsync
         uses: actions/cache@v3
