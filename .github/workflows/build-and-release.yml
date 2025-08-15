@@ -52,15 +52,29 @@ jobs:
           restore-keys: |
             git-
 
-      - name: Get latest tag
+      - name: Get latest tag from GitHub API
         id: get_latest_tag
         run: |
-          # Use GitHub API to get the latest tag instead of git fetch
-          LATEST_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/tags?per_page=1" | \
-            jq -r '.[0].name // "v0.0.0"')
+          # Retry logic for API calls
+          MAX_RETRIES=3
+          RETRY_COUNT=0
           
-          # If no tags exist yet, default to v0.0.0
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            LATEST_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/tags?per_page=1" | \
+              jq -r '.[0].name // "v0.0.0"')
+            
+            # Check if we got a rate limit error (empty response)
+            if [[ -z "$LATEST_TAG" ]]; then
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              echo "API call failed. Retrying in 5 seconds... (Attempt $RETRY_COUNT of $MAX_RETRIES)"
+              sleep 5
+            else
+              break
+            fi
+          done
+          
+          # If we still don't have a valid tag after retries, default to v0.0.0
           if [[ "$LATEST_TAG" == "null" || -z "$LATEST_TAG" ]]; then
             LATEST_TAG="v0.0.0"
           fi
@@ -112,6 +126,8 @@ jobs:
           git config --local user.email "$PR_AUTHOR_EMAIL"
           git config --local user.name "$PR_AUTHOR_NAME"
           git tag -a ${NEW_TAG} -m "Release ${NEW_TAG}: ${PR_TITLE}"
+
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           git push origin ${NEW_TAG}
 
       - name: Cache rsync
@@ -221,32 +237,27 @@ jobs:
               // Write release info to file for next job
               fs.writeFileSync('release_id.txt', release.data.id.toString());
               fs.writeFileSync('release_notes.txt', release.data.body || '');
-              
-              // Upload ZIP file
-              const zipFilePath = `InfraBox-${tag}.zip`;
-              const zipFileContent = fs.readFileSync(zipFilePath);
-              
-              await github.rest.repos.uploadReleaseAsset({
+
+              // Upload release assets using the GitHub API
+              const { data: zipAsset } = await github.rest.repos.uploadReleaseAsset({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 release_id: release.data.id,
-                name: zipFilePath,
-                data: zipFileContent
+                name: `InfraBox-${tag}.zip`,
+                data: await fs.promises.readFile(`InfraBox-${tag}.zip`)
               });
               
-              // Upload tarball
-              const tarFilePath = `InfraBox-${tag}.tar.gz`;
-              const tarFileContent = fs.readFileSync(tarFilePath);
-              
-              await github.rest.repos.uploadReleaseAsset({
+              const { data: tarAsset } = await github.rest.repos.uploadReleaseAsset({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 release_id: release.data.id,
-                name: tarFilePath,
-                data: tarFileContent
+                name: `InfraBox-${tag}.tar.gz`,
+                data: await fs.promises.readFile(`InfraBox-${tag}.tar.gz`)
               });
               
-              console.log(`Created draft release ${releaseTitle} with assets`);
+              console.log(`Created draft release ${releaseTitle} with assets:`);
+              console.log(`- ZIP: ${zipAsset.browser_download_url}`);
+              console.log(`- TAR: ${tarAsset.browser_download_url}`);
               
               return {
                 release_id: release.data.id,
@@ -287,6 +298,13 @@ jobs:
             echo "NEW_TAG=$(cat release_metadata/tag.txt)" >> $GITHUB_ENV
             echo "RELEASE_TYPE=$(cat release_metadata/type.txt)" >> $GITHUB_ENV
             
+        - name: Check permissions for downloaded artifacts
+          run: |
+            ls -la release_metadata/
+            ls -la release_info/
+            # Ensure files are readable
+            chmod 644 release_metadata/* release_info/*
+
         - name: Create New Discussion Post
           uses: actions/github-script@v6
           with:
