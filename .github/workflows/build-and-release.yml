@@ -18,6 +18,7 @@ jobs:
     outputs:
       new_tag: ${{ steps.create_tag.outputs.new_tag }}
       release_type: ${{ steps.determine_release.outputs.release_type }}
+      pr_title: ${{ steps.extract_pr_info.outputs.pr_title }}
     
     steps:
       - name: Checkout code
@@ -35,6 +36,20 @@ jobs:
           elif [[ ${{ contains(github.event.pull_request.labels.*.name, 'release:major') }} == true ]]; then
             echo "release_type=major" >> $GITHUB_OUTPUT
           fi
+
+      - name: Extract PR information
+        id: extract_pr_info
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          echo "pr_title=${PR_TITLE}" >> $GITHUB_OUTPUT
+
+      - name: Setup Git caching
+        uses: actions/cache@v3
+        with:
+          path: .git
+          key: git-${{ github.sha }}
+          restore-keys: |
+            git-
 
       - name: Get latest tag
         id: get_latest_tag
@@ -90,6 +105,17 @@ jobs:
           git tag -a ${NEW_TAG} -m "Release ${NEW_TAG}: ${PR_TITLE}"
           git push origin ${NEW_TAG}
 
+      - name: Cache rsync
+        uses: actions/cache@v3
+        id: cache-rsync
+        with:
+          path: /usr/bin/rsync
+          key: rsync-binary
+
+      - name: Install rsync if needed
+        if: steps.cache-rsync.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y rsync
+
       - name: Create artifact
         run: |
           # Exclude files not needed in release
@@ -116,17 +142,43 @@ jobs:
         with:
           name: InfraBox-${{ steps.create_tag.outputs.new_tag }}.zip
           path: InfraBox-${{ steps.create_tag.outputs.new_tag }}.zip
+          retention-days: 1
 
       - name: Upload tarball artifact
         uses: actions/upload-artifact@v4
         with:
           name: InfraBox-${{ steps.create_tag.outputs.new_tag }}.tar.gz
           path: InfraBox-${{ steps.create_tag.outputs.new_tag }}.tar.gz
+          retention-days: 1
+
+      - name: Save release metadata
+        run: |
+          mkdir -p release_metadata
+          echo "${{ steps.create_tag.outputs.new_tag }}" > release_metadata/tag.txt
+          echo "${{ steps.determine_release.outputs.release_type }}" > release_metadata/type.txt
+      
+      - name: Upload release metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata
+          path: release_metadata/
+          retention-days: 1
 
   create-release:
     needs: tag-and-build
     runs-on: ubuntu-latest
     steps:
+      - name: Download release metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: release-metadata
+          path: release_metadata
+
+      - name: Set environment variables
+        run: |
+          echo "NEW_TAG=$(cat release_metadata/tag.txt)" >> $GITHUB_ENV
+          echo "RELEASE_TYPE=$(cat release_metadata/type.txt)" >> $GITHUB_ENV
+      
       - name: Download ZIP artifact
         uses: actions/download-artifact@v4
         with:
@@ -138,12 +190,12 @@ jobs:
           name: InfraBox-${{ needs.tag-and-build.outputs.new_tag }}.tar.gz
 
       - name: Create GitHub Release
+        id: create_release
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const tag = '${{ needs.tag-and-build.outputs.new_tag }}';
-            const releaseType = '${{ needs.tag-and-build.outputs.release_type }}';
             const releaseTitle = `Release ${tag}`;
             const fs = require('fs');
             
@@ -156,6 +208,10 @@ jobs:
                 draft: true,
                 generate_release_notes: true
               });
+
+              // Write release info to file for next job
+              fs.writeFileSync('release_id.txt', release.data.id.toString());
+              fs.writeFileSync('release_notes.txt', release.data.body || '');
               
               // Upload ZIP file
               const zipFilePath = `InfraBox-${tag}.zip`;
@@ -183,52 +239,55 @@ jobs:
               
               console.log(`Created draft release ${releaseTitle} with assets`);
               
+              return {
+                release_id: release.data.id,
+                release_notes: release.data.body || 'No release notes available.'
+              };
             } catch (error) {
               core.setFailed(`Release creation failed: ${error.message}`);
             }
+          result-encoding: json
+      
+      - name: Upload release info
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-info
+          path: |
+            release_id.txt
+            release_notes.txt
+          retention-days: 1
 
   publish-discussion-post:
       needs: [tag-and-build, create-release]
       runs-on: ubuntu-latest
       steps:
-        - name: Checkout code
-          uses: actions/checkout@v4
-          
-        - name: Get Release Notes
-          id: get-release-notes
-          uses: actions/github-script@v6
+        - name: Download release metadata
+          uses: actions/download-artifact@v4
           with:
-            github-token: ${{ secrets.GITHUB_TOKEN }}
-            script: |
-              const tag = '${{ needs.tag-and-build.outputs.new_tag }}';
-              
-              try {
-                // Get the release to access its generated notes
-                const releaseResponse = await github.rest.repos.getReleaseByTag({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  tag: tag
-                });
-                
-                const releaseNotes = releaseResponse.data.body || 'No release notes available.';
-                
-                // Set outputs for use in the next step
-                return releaseNotes;
-              } catch (error) {
-                core.setFailed(`Failed to get release notes: ${error.message}`);
-                return 'Error retrieving release notes.';
-              }
-            result-encoding: string
+            name: release-metadata
+            path: release_metadata
+
+        - name: Download release info
+          uses: actions/download-artifact@v4
+          with:
+            name: release-info
+            path: release_info
+
+        - name: Set environment variables
+          run: |
+            echo "NEW_TAG=$(cat release_metadata/tag.txt)" >> $GITHUB_ENV
+            echo "RELEASE_TYPE=$(cat release_metadata/type.txt)" >> $GITHUB_ENV
+            echo "RELEASE_NOTES=$(cat release_info/release_notes.txt)" >> $GITHUB_ENV
             
         - name: Create New Discussion Post
           uses: actions/github-script@v6
           with:
             github-token: ${{ secrets.GITHUB_TOKEN }}
             script: |
-              const tag = '${{ needs.tag-and-build.outputs.new_tag }}';
-              const releaseType = '${{ needs.tag-and-build.outputs.release_type }}';
-              const discussionTitle = `Fresh new Infrabox Release: ${tag}!`;
-              const releaseNotes = `${{ steps.get-release-notes.outputs.result }}`;
+              const tag = '${{ env.NEW_TAG }}';
+              const releaseType = '${{ env.RELEASE_TYPE }}';
+              const discussionTitle = `Fresh new InfraBox Release: ${tag}!`;
+              const releaseNotes = process.env.RELEASE_NOTES;
               
               // Prepare the discussion body
               const discussionBody = `
