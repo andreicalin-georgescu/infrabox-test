@@ -97,27 +97,24 @@ jobs:
           git tag -a ${NEW_TAG} -m "Release ${NEW_TAG}: ${PR_TITLE}"
           git push origin ${NEW_TAG}
 
-      - name: Create artifact
-        run: |
-          # Exclude files not needed in release
-          mkdir -p release_content
-          rsync -av --exclude='.git*' \
-                    --exclude='CODE_OF_CONDUCT.md' \
-                    --exclude='CONTRIBUTING.md' \
-                    --exclude='.gitattributes' \
-                    --exclude='.github' \
-                    ./ release_content/
-
       - name: Create ZIP archive
         run: |
-          cd release_content
-          zip -r ../InfraBox-${{ steps.create_tag.outputs.new_tag }}.zip .
-      
+            zip -r InfraBox-${{ steps.create_tag.outputs.new_tag }}.zip . \
+            -x ".git*" \
+            -x "CODE_OF_CONDUCT.md" \
+            -x "CONTRIBUTING.md" \
+            -x ".gitattributes" \
+            -x ".github/*"
+
       - name: Create tarball
         run: |
-          cd release_content
-          tar -czf ../InfraBox-${{ steps.create_tag.outputs.new_tag }}.tar.gz .
-          
+            tar --exclude='.git*' \
+              --exclude='CODE_OF_CONDUCT.md' \
+              --exclude='CONTRIBUTING.md' \
+              --exclude='.gitattributes' \
+              --exclude='.github' \
+              -czf InfraBox-${{ steps.create_tag.outputs.new_tag }}.tar.gz .
+
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
