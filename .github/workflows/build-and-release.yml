@@ -274,10 +274,12 @@ jobs:
             github-token: ${{ secrets.GITHUB_TOKEN }}
             script: |
               const fs = require('fs');
+              const owner = context.repo.owner;
+              const repo = context.repo.repo;
               const tag = '${{ env.NEW_TAG }}';
               const releaseType = '${{ env.RELEASE_TYPE }}';
               const discussionTitle = `Fresh new InfraBox Release: ${tag}!`;
-              const releaseNotes = fs.readFileSync('release_info/release_notes.txt', 'utf-8');
+              const releaseNotes = fs.readFileSync('release_info/release_notes.txt', 'utf8');
 
               // Prepare the discussion body
               const discussionBody = `
@@ -300,30 +302,32 @@ jobs:
               `;
               
               try {
-                // Get category ID for "Announcements"
-                const discussionCategories = await github.rest.discussions.listRepoCategories({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo
+                // List discussion categories via generic request (more robust)
+                const categoriesResp = await github.request('GET /repos/{owner}/{repo}/discussion-categories', {
+                  owner,
+                  repo
                 });
                 
-                const announcementCategory = discussionCategories.data.find(
-                  category => category.name === "Announcements"
-                );
+                const categories = categoriesResp.data || [];
                 
-                if (!announcementCategory) {
-                  throw new Error('Announcements category not found in repository discussions');
+                if (!Array.isArray(categories) || categories.length === 0) {
+                  core.warning('No discussion categories found or Discussions might be disabled. Skipping post creation.');
+                  return;
                 }
                 
-                // Create the discussion
-                const discussion = await github.rest.discussions.create({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
+                // Select Announcements category
+                let category = categories.find(c => c.name === 'Announcements');
+                
+                // Create the discussion via generic request
+                const createResp = await github.request('POST /repos/{owner}/{repo}/discussions', {
+                  owner,
+                  repo,
                   title: discussionTitle,
                   body: discussionBody,
-                  category_id: announcementCategory.id
+                  category_id: category.id
                 });
                 
-                console.log(`Discussion post created: ${discussion.data.html_url}`);
+                console.log(`Discussion post created: ${createResp.data.html_url}`);
               } catch (error) {
                 core.setFailed(`Failed to create discussion post: ${error.message}`);
               }
