@@ -36,18 +36,13 @@ jobs:
           elif [[ ${{ contains(github.event.pull_request.labels.*.name, 'release:major') }} == true ]]; then
             echo "release_type=major" >> $GITHUB_OUTPUT
           fi
+
       - name: Extract PR information
         id: extract_pr_info
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
           echo "pr_title=${PR_TITLE}" >> $GITHUB_OUTPUT
-      - name: Setup Git caching
-        uses: actions/cache@v3
-        with:
-          path: .git
-          key: git-${{ github.sha }}
-          restore-keys: |
-            git-
+
       - name: Get latest tag
         id: get_latest_tag
         run: |
@@ -64,6 +59,7 @@ jobs:
             echo "minor=$MINOR" >> $GITHUB_OUTPUT
             echo "patch=$PATCH" >> $GITHUB_OUTPUT
           fi
+
       - name: Create new tag based on release type
         id: create_tag
         run: |
@@ -100,6 +96,7 @@ jobs:
           git config --local user.name "$PR_AUTHOR_NAME"
           git tag -a ${NEW_TAG} -m "Release ${NEW_TAG}: ${PR_TITLE}"
           git push origin ${NEW_TAG}
+
       - name: Cache rsync
         uses: actions/cache@v3
         id: cache-rsync
@@ -121,6 +118,7 @@ jobs:
                     --exclude='.gitattributes' \
                     --exclude='.github' \
                     ./ release_content/
+
       - name: Create ZIP archive
         run: |
           cd release_content
@@ -129,6 +127,7 @@ jobs:
         run: |
           cd release_content
           tar -czf ../InfraBox-${{ steps.create_tag.outputs.new_tag }}.tar.gz .
+          
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
