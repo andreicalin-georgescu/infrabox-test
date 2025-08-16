@@ -113,14 +113,23 @@ jobs:
 
       - name: Create ZIP archive
         run: |
-          cd release_content
-          zip -r ../InfraBox-${{ steps.create_tag.outputs.new_tag }}.zip .
-      
+            zip -r InfraBox-${{ steps.create_tag.outputs.new_tag }}.zip . \
+            -x ".git*" \
+            -x "CODE_OF_CONDUCT.md" \
+            -x "CONTRIBUTING.md" \
+            -x ".gitattributes" \
+            -x ".github/*"
+
       - name: Create tarball
         run: |
-          cd release_content
-          tar -czf ../InfraBox-${{ steps.create_tag.outputs.new_tag }}.tar.gz .
-          
+          tar --exclude='.git*' \
+              --exclude='CODE_OF_CONDUCT.md' \
+              --exclude='CONTRIBUTING.md' \
+              --exclude='.gitattributes' \
+              --exclude='.github' \
+              --warning=no-file-changed \
+              -czf InfraBox-${{ steps.create_tag.outputs.new_tag }}.tar.gz .
+
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
