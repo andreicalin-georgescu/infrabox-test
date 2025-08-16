@@ -312,7 +312,9 @@ jobs:
                     category = categories[0];
                     core.warning(`Could not find any category containing 'Announcements', using '${category.name}' instead.`);
                   }
-                    
+                
+                console.log(`Selected discussion category: ${category.name}`);
+
                 // Create the discussion via generic request
                 const createResp = await github.request('POST /repos/{owner}/{repo}/discussions', {
                   owner,
