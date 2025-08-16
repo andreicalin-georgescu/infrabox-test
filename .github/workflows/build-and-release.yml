@@ -271,12 +271,18 @@ jobs:
               const discussionTitle = `Fresh new InfraBox Release: ${tag}!`;
               const releaseNotes = fs.readFileSync('release_info/release_notes.txt', 'utf8');
 
-              // 1. Get repository ID and discussion categories via GraphQL
+              // 1. Get repository ID, discussion categories, and labels via GraphQL
               const repoQuery = `
                 query($owner: String!, $repo: String!) {
                   repository(owner: $owner, name: $repo) {
                     id
                     discussionCategories(first: 20) {
+                      nodes {
+                        id
+                        name
+                      }
+                    }
+                    labels(first: 20) {
                       nodes {
                         id
                         name
@@ -336,11 +342,13 @@ jobs:
                     body: $body
                   }) {
                     discussion {
+                      id
                       url
                     }
                   }
                 }
               `;
+              let discussionId, discussionUrl;
               try {
                 const createResp = await github.graphql(createDiscussionMutation, {
                   repoId: repository.id,
@@ -348,8 +356,47 @@ jobs:
                   title: discussionTitle,
                   body: discussionBody
                 });
-                const discussionUrl = createResp.createDiscussion.discussion.url;
+                discussionId = createResp.createDiscussion.discussion.id;
+                discussionUrl = createResp.createDiscussion.discussion.url;
                 console.log(`Discussion post created: ${discussionUrl}`);
               } catch (error) {
                 core.setFailed(`Failed to create discussion post: ${error.message}`);
+                return;
+              }
+
+              // 5. Determine which label to add
+              let labelName = null;
+              if (releaseType === 'patch') labelName = 'release:patch';
+              else if (releaseType === 'minor') labelName = 'release:minor';
+              else if (releaseType === 'major') labelName = 'release:major';
+
+              if (labelName) {
+                // 6. Find label node ID
+                const labelNode = repository.labels.nodes.find(l => l.name === labelName);
+                if (!labelNode) {
+                  core.warning(`Label '${labelName}' not found in repository. Skipping label assignment.`);
+                } else {
+                  // 7. Add label to the discussion
+                  const addLabelMutation = `
+                    mutation($labelableId: ID!, $labelIds: [ID!]!) {
+                      addLabelsToLabelable(input: {labelableId: $labelableId, labelIds: $labelIds}) {
+                        labelable {
+                          ... on Discussion {
+                            id
+                            labels(first: 10) { nodes { name } }
+                          }
+                        }
+                      }
+                    }
+                  `;
+                  try {
+                    await github.graphql(addLabelMutation, {
+                      labelableId: discussionId,
+                      labelIds: [labelNode.id]
+                    });
+                    console.log(`Label '${labelName}' added to discussion.`);
+                  } catch (error) {
+                    core.warning(`Failed to add label to discussion: ${error.message}`);
+                  }
+                }
               }
