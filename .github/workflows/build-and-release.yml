@@ -277,7 +277,7 @@ jobs:
               const tag = '${{ env.NEW_TAG }}';
               const releaseType = '${{ env.RELEASE_TYPE }}';
               const discussionTitle = `Fresh new InfraBox Release: ${tag}!`;
-              const releaseNotes = fs.readFileSync('release_notes.txt', 'utf-8');
+              const releaseNotes = fs.readFileSync('release_info/release_notes.txt', 'utf-8');
 
               // Prepare the discussion body
               const discussionBody = `
