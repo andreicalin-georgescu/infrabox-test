@@ -97,6 +97,20 @@ jobs:
           git tag -a ${NEW_TAG} -m "Release ${NEW_TAG}: ${PR_TITLE}"
           git push origin ${NEW_TAG}
 
+      - name: Create artifact
+        run: |
+          # Exclude files not needed in release
+          mkdir -p release_content
+          rsync -av --exclude='.git*' \
+                    --exclude='CODE_OF_CONDUCT.md' \
+                    --exclude='CONTRIBUTING.md' \
+                    --exclude='SECURITY.md' \
+                    --exclude='.gitignore' \
+                    --exclude='.gitattributes' \
+                    --exclude='.github' \
+                    --exclude='release_content' \
+                    ./ release_content/
+
       - name: Create ZIP archive
         run: |
             zip -r InfraBox-${{ steps.create_tag.outputs.new_tag }}.zip . \
