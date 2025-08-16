@@ -108,11 +108,12 @@ jobs:
 
       - name: Create tarball
         run: |
-            tar --exclude='.git*' \
+          tar --exclude='.git*' \
               --exclude='CODE_OF_CONDUCT.md' \
               --exclude='CONTRIBUTING.md' \
               --exclude='.gitattributes' \
               --exclude='.github' \
+              --warning=no-file-changed \
               -czf InfraBox-${{ steps.create_tag.outputs.new_tag }}.tar.gz .
 
       - name: Upload ZIP artifact
