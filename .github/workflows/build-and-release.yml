@@ -97,17 +97,6 @@ jobs:
           git tag -a ${NEW_TAG} -m "Release ${NEW_TAG}: ${PR_TITLE}"
           git push origin ${NEW_TAG}
 
-      - name: Cache rsync
-        uses: actions/cache@v3
-        id: cache-rsync
-        with:
-          path: /usr/bin/rsync
-          key: rsync-binary
-
-      - name: Install rsync if needed
-        if: steps.cache-rsync.outputs.cache-hit != 'true'
-        run: sudo apt-get update && sudo apt-get install -y rsync
-
       - name: Create artifact
         run: |
           # Exclude files not needed in release
@@ -123,6 +112,7 @@ jobs:
         run: |
           cd release_content
           zip -r ../InfraBox-${{ steps.create_tag.outputs.new_tag }}.zip .
+      
       - name: Create tarball
         run: |
           cd release_content
@@ -316,8 +306,13 @@ jobs:
                 }
                 
                 // Select Announcements category
-                let category = categories.find(c => c.name === 'Announcements');
-                
+                let category = categories.find(c => c.name.replace(/[^\w\s]/gi, '').trim().toLowerCase().includes('announcements'));
+                  if (!category) {
+                    // fallback to first category
+                    category = categories[0];
+                    core.warning(`Could not find any category containing 'Announcements', using '${category.name}' instead.`);
+                  }
+                    
                 // Create the discussion via generic request
                 const createResp = await github.request('POST /repos/{owner}/{repo}/discussions', {
                   owner,
