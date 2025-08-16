@@ -25,7 +25,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Determine release type
         id: determine_release
@@ -37,13 +36,11 @@ jobs:
           elif [[ ${{ contains(github.event.pull_request.labels.*.name, 'release:major') }} == true ]]; then
             echo "release_type=major" >> $GITHUB_OUTPUT
           fi
-
       - name: Extract PR information
         id: extract_pr_info
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
           echo "pr_title=${PR_TITLE}" >> $GITHUB_OUTPUT
-
       - name: Setup Git caching
         uses: actions/cache@v3
         with:
@@ -51,34 +48,11 @@ jobs:
           key: git-${{ github.sha }}
           restore-keys: |
             git-
-
-      - name: Get latest tag from GitHub API
+      - name: Get latest tag
         id: get_latest_tag
         run: |
-          # Retry logic for API calls
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            LATEST_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/tags?per_page=1" | \
-              jq -r '.[0].name // "v0.0.0"')
-            
-            # Check if we got a rate limit error (empty response)
-            if [[ -z "$LATEST_TAG" ]]; then
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              echo "API call failed. Retrying in 5 seconds... (Attempt $RETRY_COUNT of $MAX_RETRIES)"
-              sleep 5
-            else
-              break
-            fi
-          done
-          
-          # If we still don't have a valid tag after retries, default to v0.0.0
-          if [[ "$LATEST_TAG" == "null" || -z "$LATEST_TAG" ]]; then
-            LATEST_TAG="v0.0.0"
-          fi
-          
+          git fetch --tags
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
           echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
           
           # Parse version components
@@ -90,7 +64,6 @@ jobs:
             echo "minor=$MINOR" >> $GITHUB_OUTPUT
             echo "patch=$PATCH" >> $GITHUB_OUTPUT
           fi
-
       - name: Create new tag based on release type
         id: create_tag
         run: |
@@ -126,10 +99,7 @@ jobs:
           git config --local user.email "$PR_AUTHOR_EMAIL"
           git config --local user.name "$PR_AUTHOR_NAME"
           git tag -a ${NEW_TAG} -m "Release ${NEW_TAG}: ${PR_TITLE}"
-          
-          echo "Pushing tag ${NEW_TAG} to origin"
           git push origin ${NEW_TAG}
-          
       - name: Cache rsync
         uses: actions/cache@v3
         id: cache-rsync
@@ -151,17 +121,14 @@ jobs:
                     --exclude='.gitattributes' \
                     --exclude='.github' \
                     ./ release_content/
-
       - name: Create ZIP archive
         run: |
           cd release_content
           zip -r ../InfraBox-${{ steps.create_tag.outputs.new_tag }}.zip .
-
       - name: Create tarball
         run: |
           cd release_content
           tar -czf ../InfraBox-${{ steps.create_tag.outputs.new_tag }}.tar.gz .
-
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
@@ -233,31 +200,35 @@ jobs:
                 draft: true,
                 generate_release_notes: true
               });
-
               // Write release info to file for next job
               fs.writeFileSync('release_id.txt', release.data.id.toString());
               fs.writeFileSync('release_notes.txt', release.data.body || '');
-
-              // Upload release assets using the GitHub API
-              const { data: zipAsset } = await github.rest.repos.uploadReleaseAsset({
+              
+              // Upload ZIP file
+              const zipFilePath = `InfraBox-${tag}.zip`;
+              const zipFileContent = fs.readFileSync(zipFilePath);
+              
+              await github.rest.repos.uploadReleaseAsset({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 release_id: release.data.id,
-                name: `InfraBox-${tag}.zip`,
-                data: await fs.promises.readFile(`InfraBox-${tag}.zip`)
+                name: zipFilePath,
+                data: zipFileContent
               });
               
-              const { data: tarAsset } = await github.rest.repos.uploadReleaseAsset({
+              // Upload tarball
+              const tarFilePath = `InfraBox-${tag}.tar.gz`;
+              const tarFileContent = fs.readFileSync(tarFilePath);
+              
+              await github.rest.repos.uploadReleaseAsset({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 release_id: release.data.id,
-                name: `InfraBox-${tag}.tar.gz`,
-                data: await fs.promises.readFile(`InfraBox-${tag}.tar.gz`)
+                name: tarFilePath,
+                data: tarFileContent
               });
               
-              console.log(`Created draft release ${releaseTitle} with assets:`);
-              console.log(`- ZIP: ${zipAsset.browser_download_url}`);
-              console.log(`- TAR: ${tarAsset.browser_download_url}`);
+              console.log(`Created draft release ${releaseTitle} with assets`);
               
               return {
                 release_id: release.data.id,
@@ -297,26 +268,17 @@ jobs:
           run: |
             echo "NEW_TAG=$(cat release_metadata/tag.txt)" >> $GITHUB_ENV
             echo "RELEASE_TYPE=$(cat release_metadata/type.txt)" >> $GITHUB_ENV
+            echo "RELEASE_NOTES=$(cat release_info/release_notes.txt)" >> $GITHUB_ENV
             
-        - name: Check permissions for downloaded artifacts
-          run: |
-            ls -la release_metadata/
-            ls -la release_info/
-            # Ensure files are readable
-            chmod 644 release_metadata/* release_info/*
-
         - name: Create New Discussion Post
           uses: actions/github-script@v6
           with:
             github-token: ${{ secrets.GITHUB_TOKEN }}
             script: |
-              const fs = require('fs');
               const tag = '${{ env.NEW_TAG }}';
               const releaseType = '${{ env.RELEASE_TYPE }}';
               const discussionTitle = `Fresh new InfraBox Release: ${tag}!`;
-              
-              // Read release notes directly from the file instead of using environment variable
-              const releaseNotes = fs.readFileSync('release_info/release_notes.txt', 'utf8');
+              const releaseNotes = process.env.RELEASE_NOTES;
               
               // Prepare the discussion body
               const discussionBody = `
@@ -335,7 +297,6 @@ jobs:
               ---
               
               Thank you for your continuous support and for using InfraBox!
-
               --this post has been automatically generated by the InfraBox release workflow--
               `;
               
