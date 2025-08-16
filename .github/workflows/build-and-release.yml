@@ -104,8 +104,11 @@ jobs:
           rsync -av --exclude='.git*' \
                     --exclude='CODE_OF_CONDUCT.md' \
                     --exclude='CONTRIBUTING.md' \
+                    --exclude='SECURITY.md' \
+                    --exclude='.gitignore' \
                     --exclude='.gitattributes' \
                     --exclude='.github' \
+                    --exclude='release_content' \
                     ./ release_content/
 
       - name: Create ZIP archive
