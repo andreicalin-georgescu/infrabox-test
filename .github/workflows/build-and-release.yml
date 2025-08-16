@@ -277,17 +277,17 @@ jobs:
           run: |
             echo "NEW_TAG=$(cat release_metadata/tag.txt)" >> $GITHUB_ENV
             echo "RELEASE_TYPE=$(cat release_metadata/type.txt)" >> $GITHUB_ENV
-            echo "RELEASE_NOTES=$(cat release_info/release_notes.txt)" >> $GITHUB_ENV
             
         - name: Create New Discussion Post
           uses: actions/github-script@v6
           with:
             github-token: ${{ secrets.GITHUB_TOKEN }}
             script: |
+              const fs = require('fs');
               const tag = '${{ env.NEW_TAG }}';
               const releaseType = '${{ env.RELEASE_TYPE }}';
               const discussionTitle = `Fresh new InfraBox Release: ${tag}!`;
-              const releaseNotes = process.env.RELEASE_NOTES;
+              const releaseNotes = fs.readFileSync('release_info/release_notes.txt', 'utf8');
               
               // Prepare the discussion body
               const discussionBody = `
